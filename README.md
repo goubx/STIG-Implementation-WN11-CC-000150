@@ -1,4 +1,5 @@
-# Windows 11 STIG: V-253381 (WN11-CC-000150)
+# STIG 02: Windows 11 STIG
+## V-253381 (WN11-CC-000150)
 
 **Status:** Published
 **STIG:** DISA Microsoft Windows 11 Security Technical Implementation Guide v2r7
