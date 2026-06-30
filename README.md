@@ -1,5 +1,4 @@
-# STIG 02: Windows 11 STIG
-## V-253381 (WN11-CC-000150)
+# Windows 11 STIG 02: V-253381 (WN11-CC-000150)
 
 **Status:** Published
 **STIG:** DISA Microsoft Windows 11 Security Technical Implementation Guide v2r7
@@ -13,10 +12,11 @@ Part of the [DISA STIG Implementation with PowerShell](https://github.com/goubx/
 
 This entry hardens a stock Azure Windows 11 VM against one finding from the DISA Microsoft Windows 11 STIG v2r7 using PowerShell. The workflow:
 
-1. Pick a failed finding from the Audit tab of the Tenable scan.
-2. Remediate it manually to confirm the fix path.
-3. Translate that fix into an idempotent PowerShell function.
-4. Rescan to confirm the finding moves to passed.
+1. Scan an unhardened Azure VM with Tenable's DISA STIG compliance audit.
+2. Pick a failed finding from the Audit tab.
+3. Remediate it manually to confirm the fix path.
+4. Translate that fix into an idempotent PowerShell function.
+5. Rescan to confirm the finding moves to passed.
 
 This finding adds a real-world wrinkle: the first manual attempt didn't work because the registry path was created in the wrong subtree. The Group Policy approach surfaced the correct path, and that path is what the PowerShell script ultimately targets.
 
@@ -46,9 +46,58 @@ This finding adds a real-world wrinkle: the first manual attempt didn't work bec
 
 ---
 
-## Finding Details
+## Lab Setup
+
+The lab uses a stock Azure Windows 11 VM with Windows Defender Firewall disabled so the Tenable scanner can reach the host across the lab network:
+
+![Firewall disabled on the target VM](screenshots/01-firewall-disabled.png)
+
+> Note: this is a lab-only step. In production you would scope firewall rules to permit the scan engine rather than disabling the firewall outright.
+
+---
+
+## Scan Configuration
+
+The Tenable scan that produced this finding uses the Advanced Network Scan template, configured once and reused across all findings in this series:
+
+1. **Scans → Create Scan → Advanced Network Scan**
+2. Name: `GOUB-STIG-IMPLEMENTATION`
+3. Target: the VM's private IP (`10.1.0.102`)
+4. Scanner: internal scan engine
+5. Credentials: local administrator on the VM
+
+### Compliance audit
+
+Under the Compliance tab, the DISA Microsoft Windows 11 STIG v2r7 audit is added:
+
+![Tenable Compliance tab with the Windows 11 STIG audit added](screenshots/02-tenable-compliance.png)
+
+### Plugin scoping
+
+To keep the scan fast and focused on STIG findings only, every plugin family is disabled except one:
+
+1. Plugins, filter for `policy`, enable **Policy Compliance**.
+2. Inside Policy Compliance, enable only **Windows Compliance Checks** (Plugin ID 21156).
+
+![Policy Compliance family enabled](screenshots/03-tenable-plugins-policy.png)
+
+![Only Windows Compliance Checks enabled inside the family](screenshots/04-tenable-plugin-selected.png)
+
+---
+
+## Initial Scan
+
+The initial scan against the stock Azure VM returned 150 failed audits out of 263 total checks. STIG findings on a default Windows 11 image are dense, which makes this a good source of remediation work:
+
+![Tenable scan results showing the broader failure list](screenshots/05-initial-scan-broad.png)
+
+The finding this repo documents:
 
 > **WN11-CC-000150** : The user must be prompted for a password on resume from sleep (plugged in).
+
+---
+
+## Finding Details
 
 Pulled from STIG-A-View:
 
@@ -60,7 +109,7 @@ Pulled from STIG-A-View:
 | CCI              | CCI-002038                     |
 | SRG              | SRG-OS-000373-GPOS-00156       |
 
-![STIG-A-View entry for V-253381](screenshots/01-stigaview-finding.png)
+![STIG-A-View entry for V-253381](screenshots/06-stigaview-finding.png)
 
 **Why it matters:** Authentication must always be required when accessing a system. Without this setting, anyone with physical access to a workstation that wakes from sleep can resume the session without a password.
 
@@ -79,29 +128,21 @@ Translated to the registry:
 
 ---
 
-## Initial Scan
-
-This finding came from the same Tenable scan documented in [STIG 01](../STIG-01-Windows-11/README.md), where the stock Azure VM returned 150 failed audits out of 263 total checks. Filtering the Audits tab to WN11-CC-000150 shows the finding and its reference metadata:
-
-![Initial Tenable audit detail showing WN11-CC-000150 failed](screenshots/02-initial-scan-failed.png)
-
----
-
 ## Step 1: Manual Remediation
 
 ### First attempt: direct registry creation (failed)
 
 The target registry path doesn't exist on a default Windows 11 install. I navigated to `HKEY_LOCAL_MACHINE\SOFTWARE\Policies\Microsoft\Windows` and confirmed no Power-related keys existed there:
 
-![Default registry state, no Power subkey](screenshots/03-registry-initial.png)
+![Default registry state, no Power subkey](screenshots/07-registry-initial.png)
 
 I created the path and the `ACSettingIndex` DWORD value manually:
 
-![Registry path created with ACSettingIndex set to 1](screenshots/04-first-attempt-wrong-path.png)
+![Registry path created with ACSettingIndex set to 1](screenshots/07a-first-attempt-wrong-path.png)
 
 After restarting the VM and rerunning the Tenable scan, the finding was still failed:
 
-![Tenable scan still showing WN11-CC-000150 failed after first attempt](screenshots/05-scan-still-failed.png)
+![Tenable scan still showing WN11-CC-000150 failed after first attempt](screenshots/07b-scan-still-failed.png)
 
 **What went wrong:** look closely at the address bar in the screenshot above. The path I created was:
 
@@ -123,11 +164,11 @@ Rather than fix the path manually and risk getting the structure wrong again, I 
 
 > Computer Configuration > Administrative Templates > System > Power Management > Sleep Settings > "Require a password when a computer wakes (plugged in)" > Enabled
 
-![Group Policy Editor showing Sleep Settings with the policy enabled](screenshots/06-gpo-enabled.png)
+![Group Policy Editor showing Sleep Settings with the policy enabled](screenshots/08-gpo-enabled.png)
 
 After restarting the VM and rerunning the scan, the finding passes:
 
-![Tenable scan showing WN11-CC-000150 passed after Group Policy remediation](screenshots/07-scan-passed-manual.png)
+![Tenable scan showing WN11-CC-000150 passed after Group Policy remediation](screenshots/09-scan-passed-manual.png)
 
 The GPO change populated the correct registry path automatically. Now the script can target that exact path.
 
@@ -152,7 +193,7 @@ That tells me what the PowerShell script needs to produce: the full path under `
 
 I reverted the Group Policy setting back to "Not Configured" and reran the scan. The finding is failed again, as expected:
 
-![Tenable scan showing WN11-CC-000150 failed after reverting](screenshots/08-scan-failed-after-revert.png)
+![Tenable scan showing WN11-CC-000150 failed after reverting](screenshots/10-scan-failed-after-revert.png)
 
 Now there's a clean baseline to validate the script against.
 
@@ -229,7 +270,7 @@ Compliant: ACSettingIndex = 1
 
 After restarting the VM and rerunning the same Tenable scan, the finding passes:
 
-![Final Tenable scan showing WN11-CC-000150 passed after PowerShell remediation](screenshots/09-scan-passed-final.png)
+![Final Tenable scan showing WN11-CC-000150 passed after PowerShell remediation](screenshots/12-scan-passed-final.png)
 
 ---
 
